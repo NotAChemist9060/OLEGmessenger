@@ -1,28 +1,38 @@
 import socket
 import pygame
 import threading
-import time
+import ctypes;
+
+
 pygame.mixer.init()
+
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 port = int(input('Port: '))
-# Шаг 2: Привязываем к адресу и порту
-server_socket.bind(('0.0.0.0', port))  # 0.0.0.0 = слушать все сетевые интерфейсы
-while True:
-    # Шаг 3: Начинаем слушать (разрешаем до 5 ожидающих подключений)
-    server_socket.listen(5)
+server_socket.bind(('0.0.0.0', port))
+server_socket.listen(5)
 
-    # Шаг 4: Принимаем входящее подключение
-    client_socket, client_address = server_socket.accept()  # Программа "застынет" здесь, пока кто-то не подключится
+def play_music():
+    pygame.mixer.music.load("UwU.mp3")
+    pygame.mixer.music.play()
 
-    # Шаг 5: Получаем данные
-    data = client_socket.recv(1024)  # Читаем до 1024 байт
-    print(f"Получено: {data.decode('utf-8')}")
-    if data.decode('utf-8') == 'UwU':
-        pygame.mixer.music.load("UwU.mp3")
-        pygame.mixer.music.play()
-    # Шаг 6: Отправляем ответ
-    client_socket.send("Сообщение получено!".encode('utf-8'))
+def handle_client(client_socket, client_address):
+    try:
+        name = client_socket.recv(1024)
+        ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messanger, " + name.decode('utf-8'))
+        while True:
+            data = client_socket.recv(1024)
+            if not data:
+                break
+            print(name.decode('utf-8') + ": " + data.decode('utf-8'))
+            if data.decode('utf-8') == 'UwU':
+                threading.Thread(target=play_music).start()
+            client_socket.send("Сообщение получено!".encode('utf-8'))
+    except Exception as e:
+        print("Error occurred:", e)
+    finally:
+        client_socket.close()
 
-# Шаг 7: Закрываем соединение
-client_socket.close()
+client_socket, client_address = server_socket.accept()
+handle_client(client_socket, client_address)
+
 server_socket.close()
