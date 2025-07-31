@@ -18,7 +18,7 @@ while True:
     data = client_socket.recv(1024)  # Читаем до 1024 байт
     print(f"Получено: {data.decode('utf-8')}")
     if data.decode('utf-8') == 'UwU':
-        pygame.mixer.music.load("Дядя_Саша.mp3")
+        pygame.mixer.music.load("UwU.mp3")
         pygame.mixer.music.play()
     # Шаг 6: Отправляем ответ
     client_socket.send("Сообщение получено!".encode('utf-8'))
