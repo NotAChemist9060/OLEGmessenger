@@ -22,7 +22,7 @@ async def handle_client(reader, writer):
         name = name_data.decode('utf-8')
         ctypes.windll.kernel32.SetConsoleTitleW(f"O.L.E.G. messanger | Client: {name}")
         active_clients.append((reader, writer, name))
-        print(f"{name} Connected. Total clients: {len(active_clients)}")
+        print(f"{name} Connected. Clients: {len(active_clients)}")
 
         while True:
             data = await reader.read(1024)
@@ -35,21 +35,22 @@ async def handle_client(reader, writer):
             '''if message == 'UwU':
                 asyncio.to_thread(play_music)'''
 
-            # Рассылаем сообщение ВСЕМ клиентам (включая отправителя)
+            # Рассылаем сообщение всем клиентам, кроме отправителя
             for client_reader, client_writer, client_name in active_clients:
-                try:
-                    client_writer.write(f"{name}: {message}\n".encode('utf-8'))
-                    await client_writer.drain()
-                except:
-                    continue
+                if client_writer != writer:  # Исключаем отправителя
+                    try:
+                        client_writer.write(f"{name}: {message}\n".encode('utf-8'))
+                        await client_writer.drain()
+                    except:
+                        continue
 
     except Exception as e:
-        print(f"Error handling client {name}: {e}")
+        print(f"Error while handling client {name}: {e}")
     finally:
         writer.close()
         await writer.wait_closed()
         active_clients.remove((reader, writer, name))
-        print(f"{name} Disconnected. Total clients: {len(active_clients)}")
+        print(f"{name} Disconnected. Clients: {len(active_clients)}")
 
 async def start_server():
     port = int(input('Port: '))
