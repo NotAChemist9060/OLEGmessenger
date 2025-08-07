@@ -1,19 +1,24 @@
 import socket
+import asyncio
 import pygame
 import threading
-import ctypes;
+import ctypes
+import os
 
 
 pygame.mixer.init()
-
+ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messanger")
+os.system('cls||clear')
+print(' #####   #       #####   #####\n',
+       '#   #   #       #       #    \n',
+       '#   #   #       ####    #  ##\n',
+       '#   #   #       #       #   #\n',
+       '#####   #####   #####   #####\n')
+print('=====The Server side=====')
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 port = int(input('Port: '))
 server_socket.bind(('0.0.0.0', port))
 server_socket.listen(5)
-
-def play_music():
-    pygame.mixer.music.load("UwU.mp3")
-    pygame.mixer.music.play()
 
 def handle_client(client_socket, client_address):
     try:
@@ -24,8 +29,6 @@ def handle_client(client_socket, client_address):
             if not data:
                 break
             print(name.decode('utf-8') + ": " + data.decode('utf-8'))
-            if data.decode('utf-8') == 'UwU':
-                threading.Thread(target=play_music).start()
             client_socket.send("Сообщение получено!".encode('utf-8'))
     except Exception as e:
         print("Error occurred:", e)
