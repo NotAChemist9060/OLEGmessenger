@@ -1,10 +1,7 @@
-import socket
 import asyncio
 import pygame
-import threading
 import ctypes
 import os
-
 
 pygame.mixer.init()
 ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messanger")
@@ -15,27 +12,59 @@ print(' #####   #       #####   #####\n',
        '#   #   #       #       #   #\n',
        '#####   #####   #####   #####\n')
 print('=====The Server side=====')
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-port = int(input('Port: '))
-server_socket.bind(('0.0.0.0', port))
-server_socket.listen(5)
 
-def handle_client(client_socket, client_address):
+
+active_clients = []
+
+async def handle_client(reader, writer):
     try:
-        name = client_socket.recv(1024)
-        ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messanger, " + name.decode('utf-8'))
+        name_data = await reader.read(1024)
+        name = name_data.decode('utf-8')
+        ctypes.windll.kernel32.SetConsoleTitleW(f"O.L.E.G. messanger | Client: {name}")
+        active_clients.append((reader, writer, name))
+        print(f"{name} Connected. Total clients: {len(active_clients)}")
+
         while True:
-            data = client_socket.recv(1024)
+            data = await reader.read(1024)
             if not data:
                 break
-            print(name.decode('utf-8') + ": " + data.decode('utf-8'))
-            client_socket.send("Сообщение получено!".encode('utf-8'))
+            
+            message = data.decode('utf-8')
+            print(f"{name}: {message}")
+
+            '''if message == 'UwU':
+                asyncio.to_thread(play_music)'''
+
+            # Рассылаем сообщение ВСЕМ клиентам (включая отправителя)
+            for client_reader, client_writer, client_name in active_clients:
+                try:
+                    client_writer.write(f"{name}: {message}\n".encode('utf-8'))
+                    await client_writer.drain()
+                except:
+                    continue
+
     except Exception as e:
-        print("Error occurred:", e)
+        print(f"Error handling client {name}: {e}")
     finally:
-        client_socket.close()
+        writer.close()
+        await writer.wait_closed()
+        active_clients.remove((reader, writer, name))
+        print(f"{name} Disconnected. Total clients: {len(active_clients)}")
 
-client_socket, client_address = server_socket.accept()
-handle_client(client_socket, client_address)
+async def start_server():
+    port = int(input('Port: '))
+    server = await asyncio.start_server(
+        handle_client,
+        '0.0.0.0',
+        port
+    )
+    print(f"Server started on port: {port}")
 
-server_socket.close()
+    async with server:
+        await server.serve_forever()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(start_server())
+    except KeyboardInterrupt:
+        print("Server stopped.")
