@@ -49,7 +49,6 @@ async def send_messages(writer):
         await writer.wait_closed()
 
 async def main():
-    print("=== O.L.E.G. Messanger ===")
     ip = input("Enter the IP address: ")
     port = int(input("Enter the port: "))
     name = input("Enter your name: ")
@@ -85,3 +84,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nGoodbye")
+
