@@ -2,6 +2,16 @@ import asyncio
 import os
 import ctypes
 
+no_escape=ctypes.windll.kernel32.GetConsoleWindow()
+
+if no_escape:
+    
+    hmenu = ctypes.windll.user32.GetSystemMenu(no_escape, False)
+    
+    if hmenu:
+        
+        ctypes.windll.user32.EnableMenuItem(hmenu, 0xF060, 1|2)
+
 # Устанавливаем заголовок консоли
 ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messanger - You")
 os.system('cls||clear')
@@ -15,7 +25,7 @@ print('=====The Client side=====')
 async def receive_messages(reader):
     while True:
         try:
-            data = await reader.read(1024)
+            data = await reader.read(1048576)
             if not data:
                 print("\nConnection closed by server")
                 break
