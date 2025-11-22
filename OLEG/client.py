@@ -62,11 +62,15 @@ async def main():
     ip = input("Enter the IP address: ")
     port = int(input("Enter the port: "))
     name = input("Enter your name: ")
+    token="Y2010M07D23.01"
+
     
     try:
         while True:
             try:
                 reader, writer = await asyncio.open_connection(ip, port)
+                writer.write(token.encode('utf-8'))
+                await writer.drain()
                 break
             except:
                 pass
