@@ -3,6 +3,7 @@ import os
 import ctypes
 import sys
 import shutil
+import json
 
 '''no_escape=ctypes.windll.kernel32.GetConsoleWindow()
 
@@ -147,14 +148,27 @@ async def main():
     print('=====The Client side=====')
     
     # Get connection details
+    auth_file = open('auth.txt', 'r')
     ip = input("Enter the IP address: ")
     port = int(input("Enter the port: "))
-    name = input("Enter your name: ")
+    try:
+        if auth_file.read() == '':
+            auth_file.close()
+            auth_file = open('auth.txt', 'w')
+            name = input("Enter your name: ")
+            auth_file.write(name)
+        else:
+            name = auth_file.read()
+    except Exception as e:
+        print(f'Authorization error occured{e}')
+        name = input("Enter your name: ")
     token = "Y2010M07D23.01"
     
     text_to_write.append("Enter the IP address: " + ip)
     text_to_write.append("Enter the port: " + str(port))
     text_to_write.append("Enter your name: " + name)
+    auth_file.close()
+    
 
     try:
         # Connect to server
