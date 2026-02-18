@@ -63,7 +63,7 @@ async def handle_client(reader, writer):
             for client_reader, client_writer, client_name in active_clients:
                 if client_writer != writer:
                     try:
-                        client_writer.write(f"{name}: {message}\n".encode('utf-8'))
+                        client_writer.write(f"{name}: {message}".encode('utf-8'))
                         await client_writer.drain()
                     except:
                         continue
@@ -79,7 +79,11 @@ async def handle_client(reader, writer):
                 break
                 
         writer.close()
-        await writer.wait_closed()
+        try:
+            await writer.wait_closed()
+        except Exception as e:
+            print(e)
+            writer.close()
 
 async def start_server():
     port = int(input('Port: '))
