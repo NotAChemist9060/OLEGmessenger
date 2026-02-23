@@ -1,11 +1,13 @@
 import asyncio
 import pygame
-import ctypes
 import os
+import sys
 
 pygame.mixer.init()
-ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messanger")
-os.system('cls||clear')
+if sys.platform == "win32":
+    import ctypes
+    ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messanger")
+os.system("cls" if sys.platform == "win32" else "clear")
 print(' #####   #       #####   #####\n',
        '#   #   #       #       #    \n',
        '#   #   #       ####    #  ##\n',
@@ -47,7 +49,9 @@ async def handle_client(reader, writer):
             return
             
         name = name_data.decode('utf-8')
-        ctypes.windll.kernel32.SetConsoleTitleW(f"O.L.E.G. messanger | Client: {name}")
+        if sys.platform == "win32":
+            import ctypes
+            ctypes.windll.kernel32.SetConsoleTitleW(f"O.L.E.G. messanger | Client: {name}")
         active_clients.append((reader, writer, name))
         print(f"{name} Connected. Clients: {len(active_clients)}")
 

@@ -1,6 +1,5 @@
 import asyncio
 import os
-import ctypes
 import sys
 import shutil
 import json
@@ -13,8 +12,10 @@ if no_escape:
         ctypes.windll.user32.EnableMenuItem(hmenu, 0xF060, 1|2)'''
 
 # Устанавливаем заголовок консоли
-ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messanger - You")
-os.system('cls||clear')
+if sys.platform == "win32":
+    import ctypes
+    ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messanger - You")
+os.system("cls" if sys.platform == "win32" else "clear")
 
 # Store the banner as a constant
 BANNER ='''#####   #       #####   #####
