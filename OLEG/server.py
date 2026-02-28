@@ -1,9 +1,8 @@
 import asyncio
-import pygame
 import os
 import sys
+from typing import List, Tuple
 
-pygame.mixer.init()
 if sys.platform == "win32":
     import ctypes
     ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messanger")
@@ -15,79 +14,111 @@ print(' #####   #       #####   #####\n',
        '#####   #####   #####   #####\n')
 print('=====The Server side=====')
 
-# Ожидаемый токен для аутентификации
+# Expected token - must match exactly with client
 EXPECTED_TOKEN = "Y2010M07D23.01"
-active_clients = []
+
+class ClientManager:
+    def __init__(self):
+        self.clients = []
+        self.lock = asyncio.Lock()
+    
+    async def add_client(self, reader, writer, name):
+        async with self.lock:
+            self.clients.append((reader, writer, name))
+    
+    async def remove_client(self, writer):
+        async with self.lock:
+            self.clients = [(r, w, n) for r, w, n in self.clients if w != writer]
+    
+    async def get_all_clients(self):
+        async with self.lock:
+            return self.clients.copy()
+
+client_manager = ClientManager()
 
 async def handle_client(reader, writer):
     client_addr = writer.get_extra_info('peername')
     print(f"Новое подключение от {client_addr}")
+    client_added = False
     
     try:
-        # Шаг 1: Получаем и проверяем токен
-        token_data = await reader.read(1024)
+        # Step 1: Receive and verify token
+        token_data = await reader.read(1048576)
         if not token_data:
-            print(f"Клиент {client_addr} отключился до отправки токена")
+            print(f"Client {client_addr} disconnected before sending token")
             return
             
         received_token = token_data.decode('utf-8')
         
+        # Check if token matches expected value
         if received_token != EXPECTED_TOKEN:
-            error_msg = "Ошибка аутентификации: неверный токен"
+            error_msg = "Authentication error: invalid token"
             writer.write(error_msg.encode('utf-8'))
             await writer.drain()
-            print(f"Клиент {client_addr} отключен: неверный токен")
+            print(f"Client {client_addr} disconnected: invalid token")
             return
         
-        # Токен верный - продолжаем обработку
-        print(f"Клиент {client_addr} успешно аутентифицирован")
+        # Token is valid - continue processing
+        print(f"Client {client_addr} authenticated successfully")
         
-        # Шаг 2: Получаем имя пользователя
-        name_data = await reader.read(1024)
+        # Step 2: Get username
+        name_data = await reader.read(1048576)
         if not name_data:
-            print(f"Клиент {client_addr} отключился до отправки имени")
+            print(f"Client {client_addr} disconnected before sending username")
             return
             
         name = name_data.decode('utf-8')
+        # Sanitize name for security
+        name = ''.join(c for c in name if c.isalnum() or c in ' ._-' )[:30]
+        
         if sys.platform == "win32":
             import ctypes
             ctypes.windll.kernel32.SetConsoleTitleW(f"O.L.E.G. messanger | Client: {name}")
-        active_clients.append((reader, writer, name))
-        print(f"{name} Connected. Clients: {len(active_clients)}")
+        
+        await client_manager.add_client(reader, writer, name)
+        client_added = True
+        print(f"{name} Connected. Clients: {len(await client_manager.get_all_clients())}")
 
-        # Основной цикл обработки сообщений
+        # Main message handling loop
         while True:
             data = await reader.read(1048576)
             if not data:
                 break
             
             message = data.decode('utf-8')
+            # Sanitize message for security
+            message = message.replace('\n', ' ').replace('\r', '')[:1000]
+            
             print(f"{name}: {message}")
-
-            for client_reader, client_writer, client_name in active_clients:
+            
+            # Get current clients list
+            current_clients = await client_manager.get_all_clients()
+            
+            for client_reader, client_writer, client_name in current_clients:
                 if client_writer != writer:
                     try:
-                        client_writer.write(f"{name}: {message}".encode('utf-8'))
+                        safe_message = f"{name}: {message}"
+                        client_writer.write(safe_message.encode('utf-8'))
                         await client_writer.drain()
-                    except:
+                    except Exception:
+                        # Remove client if write fails
+                        await client_manager.remove_client(client_writer)
                         continue
 
     except Exception as e:
         print(f"Error while handling client: {e}")
     finally:
-        # Удаляем клиента из списка если он был добавлен
-        for client in active_clients:
-            if client[1] == writer:
-                active_clients.remove(client)
-                print(f"{client[2]} Disconnected. Clients: {len(active_clients)}")
-                break
+        # Remove client from list if it was added
+        if client_added:
+            await client_manager.remove_client(writer)
+            print(f"Client disconnected. Remaining clients: {len(await client_manager.get_all_clients())}")
                 
-        writer.close()
         try:
-            await writer.wait_closed()
-        except Exception as e:
-            print(e)
             writer.close()
+            await writer.wait_closed()
+        except Exception:
+            # Ignore errors during closing
+            pass
 
 async def start_server():
     port = int(input('Port: '))
@@ -97,7 +128,7 @@ async def start_server():
         port
     )
     print(f"Server started on port: {port}")
-    print(f"Ожидание подключений с токеном: {EXPECTED_TOKEN}")
+    print(f"Waiting for connections...")
 
     async with server:
         await server.serve_forever()

@@ -3,13 +3,7 @@ import os
 import sys
 import shutil
 import json
-
-'''no_escape=ctypes.windll.kernel32.GetConsoleWindow()
-
-if no_escape:
-    hmenu = ctypes.windll.user32.GetSystemMenu(no_escape, False)
-    if hmenu:
-        ctypes.windll.user32.EnableMenuItem(hmenu, 0xF060, 1|2)'''
+from typing import List, Tuple
 
 # Устанавливаем заголовок консоли
 if sys.platform == "win32":
@@ -149,26 +143,32 @@ async def main():
     print('=====The Client side=====')
     
     # Get connection details
-    auth_file = open('auth.txt', 'r')
+    try:
+        if os.path.exists('auth.txt'):
+            with open('auth.txt', 'r') as auth_file:
+                saved_name = auth_file.read().strip()
+        else:
+            saved_name = ''
+    except:
+        saved_name = ''
+    
     ip = input("Enter the IP address: ")
     port = int(input("Enter the port: "))
     try:
-        if auth_file.read() == '':
-            auth_file.close()
-            auth_file = open('auth.txt', 'w')
+        if not saved_name:
             name = input("Enter your name: ")
-            auth_file.write(name)
+            with open('auth.txt', 'w') as auth_file:
+                auth_file.write(name)
         else:
-            name = auth_file.read()
+            name = saved_name
     except Exception as e:
-        print(f'Authorization error occured{e}')
+        print(f'Authorization error occurred: {e}')
         name = input("Enter your name: ")
-    token = "Y2010M07D23.01"
+    token = "Y2010M07D23.01"  # Use the same token as server expects
     
     text_to_write.append("Enter the IP address: " + ip)
     text_to_write.append("Enter the port: " + str(port))
     text_to_write.append("Enter your name: " + name)
-    auth_file.close()
     
 
     try:
@@ -176,16 +176,19 @@ async def main():
         while True:
             try:
                 reader, writer = await asyncio.open_connection(ip, port)
+                # Send the exact token string
                 writer.write(token.encode('utf-8'))
                 await writer.drain()
                 break
             except ConnectionRefusedError:
+                print("Connection refused, retrying...")
                 await asyncio.sleep(1)
                 continue
             except Exception as e:
                 print(f"Connection error: {e}")
                 await asyncio.sleep(1)
                 
+        # Send the username after successful connection
         writer.write(name.encode('utf-8'))
         await writer.drain()
         
