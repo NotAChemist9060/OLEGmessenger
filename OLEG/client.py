@@ -4,19 +4,6 @@ import ctypes
 import sys
 import shutil
 import json
-<<<<<<< Updated upstream
-
-'''no_escape=ctypes.windll.kernel32.GetConsoleWindow()
-
-if no_escape:
-    hmenu = ctypes.windll.user32.GetSystemMenu(no_escape, False)
-    if hmenu:
-        ctypes.windll.user32.EnableMenuItem(hmenu, 0xF060, 1|2)'''
-
-# Устанавливаем заголовок консоли
-ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messanger - You")
-os.system('cls||clear')
-=======
 import base64
 import re
 import threading
@@ -37,9 +24,10 @@ except ImportError as e:
     print("Install with: pip install tkinterdnd2")
 
 if sys.platform == "win32":
-    import ctypes
-    ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messenger - Client")
->>>>>>> Stashed changes
+    try:
+        ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messenger - Client")
+    except Exception:
+        pass
 
 # Configure logging
 logging.basicConfig(
@@ -70,7 +58,7 @@ class Config:
     MAX_CHAT_HISTORY = 500
     HISTORY_FILE = "chat_history.json"
     DOWNLOADS_FOLDER = "downloads"
-    MAX_FILE_SIZE = 10 * 1024 * 1024
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
     TOKEN = "Y2010M07D23.01"
     AUTH_FILE = "auth.txt"
     BUFFER_SIZE = 1048576  # 1MB
@@ -557,10 +545,10 @@ class CommandHandler:
         if self.drag_drop_window is None:
             logger.info("CommandHandler._cmd_drop() - Creating new drag drop window")
             self.message_manager.add_message("Opening drag & drop window...", is_user_message=False)
-            # Will be created by main client
         elif not self.drag_drop_window.is_open:
             logger.info("CommandHandler._cmd_drop() - Reopening drag drop window")
             self.message_manager.add_message("Opening drag & drop window...", is_user_message=False)
+            self.drag_drop_window.create_window()
         else:
             logger.warning("CommandHandler._cmd_drop() - Window already open")
             self.message_manager.add_message("Drag & drop window already open", is_user_message=False)
@@ -587,7 +575,7 @@ class ChatClient:
         logger.debug("ChatClient._load_auth() called")
         try:
             if os.path.exists(Config.AUTH_FILE):
-                with open(Config.AUTH_FILE, 'r') as f:
+                with open(Config.AUTH_FILE, 'r', encoding='utf-8') as f:
                     name = f.read().strip()
                     logger.debug(f"ChatClient._load_auth() - Loaded name: {name}")
                     return name
@@ -599,7 +587,7 @@ class ChatClient:
         """Save username"""
         logger.debug(f"ChatClient._save_auth() - Name: {name}")
         try:
-            with open(Config.AUTH_FILE, 'w') as f:
+            with open(Config.AUTH_FILE, 'w', encoding='utf-8') as f:
                 f.write(name)
             logger.debug("ChatClient._save_auth() - Saved successfully")
         except Exception as e:
@@ -753,13 +741,6 @@ class ChatClient:
         """Send messages to server"""
         logger.info("ChatClient._send_messages() started")
         try:
-            # Initialize command handler
-            self.command_handler = CommandHandler(
-                self.file_handler, 
-                self.message_manager, 
-                self.drag_drop_window
-            )
-            
             while not self.shutdown_event.is_set():
                 # Check for drag-drop files
                 if self.drag_drop_window:
@@ -783,7 +764,10 @@ class ChatClient:
                 
                 if message:
                     # Check if it's a command
-                    is_command = await self.command_handler.handle_command(message, self.writer)
+                    if self.command_handler:
+                        is_command = await self.command_handler.handle_command(message, self.writer)
+                    else:
+                        is_command = False
                     
                     if not is_command:
                         # Regular message - save to history
@@ -850,7 +834,7 @@ class ChatClient:
             if TKINTER_AVAILABLE:
                 self.message_manager.add_message("Type /drop to open drag & drop window", is_user_message=False)
             
-            # Create drag drop window reference
+            # Create drag drop window and command handler
             self.drag_drop_window = DragDropWindow(
                 self.writer, 
                 self.file_handler, 
@@ -892,80 +876,13 @@ async def main():
     logger.info("CLIENT STARTING")
     logger.info("=" * 50)
     
-<<<<<<< Updated upstream
-    # Initial display
-    print(BANNER)
-    print('=====The Client side=====')
-    
-    # Get connection details
-    auth_file = open('auth.txt', 'r')
-    ip = input("Enter the IP address: ")
-    port = int(input("Enter the port: "))
-    try:
-        if auth_file.read() == '':
-            auth_file.close()
-            auth_file = open('auth.txt', 'w')
-            name = input("Enter your name: ")
-            auth_file.write(name)
-        else:
-            name = auth_file.read()
-    except Exception as e:
-        print(f'Authorization error occured{e}')
-        name = input("Enter your name: ")
-    token = "Y2010M07D23.01"
-    
-    text_to_write.append("Enter the IP address: " + ip)
-    text_to_write.append("Enter the port: " + str(port))
-    text_to_write.append("Enter your name: " + name)
-    auth_file.close()
-=======
     client = ChatClient()
     await client.run()
->>>>>>> Stashed changes
     
     logger.info("=" * 50)
     logger.info("CLIENT SHUTDOWN")
     logger.info("=" * 50)
 
-<<<<<<< Updated upstream
-    try:
-        # Connect to server
-        while True:
-            try:
-                reader, writer = await asyncio.open_connection(ip, port)
-                writer.write(token.encode('utf-8'))
-                await writer.drain()
-                break
-            except ConnectionRefusedError:
-                await asyncio.sleep(1)
-                continue
-            except Exception as e:
-                print(f"Connection error: {e}")
-                await asyncio.sleep(1)
-                
-        writer.write(name.encode('utf-8'))
-        await writer.drain()
-        
-        # Clear screen and show chat interface
-        clear_cmd()
-
-        receive_task = asyncio.create_task(receive_messages(reader))
-        await send_messages(writer)
-
-        receive_task.cancel()
-        try:
-            await receive_task
-        except asyncio.CancelledError:
-            pass
-
-    except ConnectionRefusedError:
-        print("Unable to connect to the server")
-    except Exception as e:
-        print(f"Error occurred: {e}")
-    finally:
-        print("\nGoodbye")
-=======
->>>>>>> Stashed changes
 
 if __name__ == "__main__":
     try:
