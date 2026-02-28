@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+O.L.E.G. Messenger - Server
+Compatible with GUI Client
+"""
+
 import asyncio
 import os
 import sys
@@ -7,8 +14,9 @@ import logging
 import ctypes
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 
+# Windows console setup
 if sys.platform == "win32":
     try:
         ctypes.windll.kernel32.SetConsoleTitleW("O.L.E.G. messenger - Server")
@@ -17,111 +25,103 @@ if sys.platform == "win32":
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
     handlers=[
-        logging.FileHandler('server_debug.log', encoding='utf-8'),
+        logging.FileHandler('server_debug.log', encoding='utf-8', mode='a'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger('SERVER')
 
-BANNER = (
-    '#####   #       #####   #####\n'
-    '#   #   #       #       #    \n'
-    '#   #   #       ####    #  ##\n'
-    '#   #   #       #       #   #\n'
-    '#####   #####   #####   #####\n'
-)
 
-CURSOR_SHOW = '\033[?25h'
-
-
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 class Config:
-    """Configuration constants"""
+    """Server configuration"""
+    # Auth
     EXPECTED_TOKEN = "Y2010M07D23.01"
-    MAX_MESSAGE_HISTORY = 1000
-    MAX_CHAT_HISTORY = 500
-    HISTORY_FILE = "server_history.json"
-    UPLOADS_FOLDER = "server_uploads"
-    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-    BUFFER_SIZE = 1048576  # 1MB
     
+    # Network
+    BUFFER_SIZE = 1048576  # 1MB
+    HOST = '0.0.0.0'
+    
+    # Files
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+    UPLOADS_FOLDER = "server_uploads"
+    
+    # History
+    HISTORY_FILE = "server_history.json"
+    MAX_HISTORY = 1000
+    
+    # File types
     ALLOWED_EXTENSIONS = {
-        'images': {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'},
-        'documents': {'.txt', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'},
-        'archives': {'.zip', '.rar', '.7z', '.tar', '.gz'},
+        'image': {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'},
+        'document': {'.pdf', '.doc', '.docx', '.txt', '.rtf', '.xls', '.xlsx'},
+        'archive': {'.zip', '.rar', '.7z', '.tar', '.gz'},
         'code': {'.py', '.js', '.html', '.css', '.json', '.xml', '.md'},
-        'other': {'.mp3', '.mp4', '.wav', '.avi', '.mkv'}
+        'other': set()
     }
 
 
+# ============================================================================
+# MESSAGE MANAGER
+# ============================================================================
 class MessageManager:
-    """Manages server messages and history"""
+    """Manages server message history"""
     
     def __init__(self):
-        logger.debug("MessageManager initialized")
-        self.text_to_write: List[str] = []
-        self.chat_history: List[str] = []
+        self.messages: List[dict] = []
         self.lock = asyncio.Lock()
     
-    async def save_history(self):
-        """Save chat history to file"""
-        try:
-            async with self.lock:
-                with open(Config.HISTORY_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(
-                        self.chat_history[-Config.MAX_CHAT_HISTORY:], 
-                        f, 
-                        ensure_ascii=False, 
-                        indent=2
-                    )
-            logger.debug(f"Saved {len(self.chat_history)} messages to history")
-        except Exception as e:
-            logger.error(f"save_history error: {e}")
+    async def add(self, text: str, msg_type: str = "system"):
+        """Add message to history"""
+        async with self.lock:
+            msg = {
+                "text": text,
+                "type": msg_type,
+                "timestamp": datetime.now().isoformat()
+            }
+            self.messages.append(msg)
+            if len(self.messages) > Config.MAX_HISTORY:
+                self.messages = self.messages[-Config.MAX_HISTORY:]
+            await self._save()
     
-    async def load_history(self):
-        """Load chat history from file"""
+    async def _save(self):
+        """Save history to file"""
+        try:
+            with open(Config.HISTORY_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.messages, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save history: {e}")
+    
+    async def load(self) -> List[dict]:
+        """Load history from file"""
         try:
             if os.path.exists(Config.HISTORY_FILE):
                 with open(Config.HISTORY_FILE, 'r', encoding='utf-8') as f:
-                    self.chat_history = json.load(f)
-                self.text_to_write.extend(self.chat_history[-50:])
-                logger.debug(f"Loaded {len(self.chat_history)} messages from history")
+                    self.messages = json.load(f)
+                logger.info(f"Loaded {len(self.messages)} messages from history")
+                return self.messages
         except Exception as e:
-            logger.error(f"load_history error: {e}")
-            self.chat_history = []
+            logger.error(f"Failed to load history: {e}")
+        return []
     
-    async def add_message(self, message: str, is_user_message: bool = False):
-        """Add a message to display and optionally to history"""
-        async with self.lock:
-            timestamp = datetime.now().strftime("[%H:%M:%S]")
-            formatted_message = f"{timestamp} {message}"
-            self.text_to_write.append(formatted_message)
-            
-            if is_user_message:
-                self.chat_history.append(formatted_message)
-                if len(self.chat_history) > Config.MAX_CHAT_HISTORY:
-                    self.chat_history = self.chat_history[-Config.MAX_CHAT_HISTORY:]
-                await self.save_history()
-            
-            if len(self.text_to_write) > Config.MAX_MESSAGE_HISTORY:
-                self.text_to_write = self.text_to_write[-Config.MAX_MESSAGE_HISTORY:]
-    
-    def get_display_messages(self) -> List[str]:
-        """Get messages for display"""
-        return self.text_to_write[-Config.MAX_MESSAGE_HISTORY:]
-    
-    async def clear_messages(self):
+    async def clear(self):
         """Clear all messages"""
         async with self.lock:
-            self.text_to_write = []
+            self.messages = []
+            await self._save()
 
 
+# ============================================================================
+# CLIENT INFO
+# ============================================================================
 class ClientInfo:
     """Stores client connection information"""
     
-    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, 
+    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                  name: str, addr: tuple):
         self.reader = reader
         self.writer = writer
@@ -133,34 +133,41 @@ class ClientInfo:
         return f"ClientInfo(name={self.name}, addr={self.addr})"
 
 
+# ============================================================================
+# CLIENT MANAGER
+# ============================================================================
 class ClientManager:
     """Manages all connected clients"""
     
     def __init__(self):
-        logger.debug("ClientManager initialized")
         self.clients: List[ClientInfo] = []
         self.lock = asyncio.Lock()
     
-    async def add_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, 
-                        name: str, addr: tuple):
+    async def add(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
+                  name: str, addr: tuple) -> ClientInfo:
         """Add a new client"""
         async with self.lock:
             client = ClientInfo(reader, writer, name, addr)
             self.clients.append(client)
-            logger.info(f"Added client: {name} at {addr}")
+            logger.info(f"Client added: {name} at {addr}")
+            return client
     
-    async def remove_client(self, writer: asyncio.StreamWriter):
+    async def remove(self, writer: asyncio.StreamWriter) -> Optional[ClientInfo]:
         """Remove a client"""
         async with self.lock:
-            self.clients = [c for c in self.clients if c.writer != writer]
-            logger.debug(f"Client removed, remaining: {len(self.clients)}")
+            for i, client in enumerate(self.clients):
+                if client.writer == writer:
+                    removed = self.clients.pop(i)
+                    logger.info(f"Client removed: {removed.name}")
+                    return removed
+            return None
     
-    async def get_all_clients(self) -> List[ClientInfo]:
+    async def get_all(self) -> List[ClientInfo]:
         """Get all connected clients"""
         async with self.lock:
             return self.clients.copy()
     
-    async def get_client_by_name(self, name: str) -> Optional[ClientInfo]:
+    async def get_by_name(self, name: str) -> Optional[ClientInfo]:
         """Get client by name"""
         async with self.lock:
             for client in self.clients:
@@ -168,444 +175,457 @@ class ClientManager:
                     return client
             return None
     
-    async def get_client_count(self) -> int:
+    async def count(self) -> int:
         """Get number of connected clients"""
         async with self.lock:
             return len(self.clients)
+    
+    async def get_names(self) -> List[str]:
+        """Get list of client names"""
+        async with self.lock:
+            return [c.name for c in self.clients]
 
 
+# ============================================================================
+# FILE HANDLER
+# ============================================================================
 class FileHandler:
     """Handles file operations on server"""
     
     def __init__(self):
-        logger.debug("FileHandler initialized")
         os.makedirs(Config.UPLOADS_FOLDER, exist_ok=True)
+        logger.info(f"Uploads folder: {os.path.abspath(Config.UPLOADS_FOLDER)}")
     
     @staticmethod
-    def format_file_size(size_bytes: int) -> str:
-        """Format file size for display"""
+    def format_size(size: int) -> str:
+        """Human-readable file size"""
         for unit in ['B', 'KB', 'MB', 'GB']:
-            if size_bytes < 1024:
-                return f"{size_bytes:.2f} {unit}"
-            size_bytes /= 1024
-        return f"{size_bytes:.2f} TB"
+            if size < 1024:
+                return f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{size:.1f} TB"
     
     @staticmethod
-    def sanitize_filename(filename: str) -> str:
-        """Sanitize filename for safe storage"""
-        safe_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._- "
-        return ''.join(c for c in filename if c in safe_chars).strip()[:100]
+    def sanitize_name(name: str) -> str:
+        """Sanitize filename"""
+        safe = ''.join(c for c in name if c.isalnum() or c in '._- ')
+        return safe.strip()[:100] or "unnamed_file"
     
     @staticmethod
     def get_file_type(filename: str) -> str:
-        """Get file type based on extension"""
+        """Determine file type by extension"""
         ext = Path(filename).suffix.lower()
-        for file_type, extensions in Config.ALLOWED_EXTENSIONS.items():
-            if ext in extensions:
-                return file_type
+        for ftype, exts in Config.ALLOWED_EXTENSIONS.items():
+            if ext in exts:
+                return ftype
         return 'other'
     
-    async def handle_file_transfer(self, file_data: str, sender_name: str) -> tuple:
+    async def process_file(self, file_data: str, sender_name: str) -> tuple:
         """
-        Handle incoming file transfer
-        Returns: (file_content, file_info_json) or (None, error_message)
+        Process incoming file
+        Returns: (success: bool, file_info: dict or error_message: str)
         """
         try:
             # Parse: filename|base64content
-            parts = file_data.split('|', 2)
-            
+            parts = file_data.split('|', 1)
             if len(parts) < 2:
-                return None, "Invalid file format"
+                return False, "Invalid file format"
             
-            filename = self.sanitize_filename(parts[0])
-            file_content_b64 = parts[1]
+            filename = self.sanitize_name(parts[0])
+            content_b64 = parts[1]
             
             if not filename:
-                return None, "Invalid filename"
+                return False, "Invalid filename"
             
             # Decode base64
             try:
-                decoded_content = base64.b64decode(file_content_b64)
+                decoded = base64.b64decode(content_b64)
             except Exception as e:
-                return None, f"Base64 decode error: {e}"
+                return False, f"Base64 decode error: {e}"
             
-            file_size = len(decoded_content)
-            
-            if file_size > Config.MAX_FILE_SIZE:
-                return None, f"File too large! Max: {self.format_file_size(Config.MAX_FILE_SIZE)}"
-            
-            file_type = self.get_file_type(filename)
-            human_size = self.format_file_size(file_size)
+            # Check size
+            if len(decoded) > Config.MAX_FILE_SIZE:
+                return False, f"File too large (max {self.format_size(Config.MAX_FILE_SIZE)})"
             
             # Save file
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            safe_filename = f"{timestamp}_{filename}"
-            file_path = os.path.join(Config.UPLOADS_FOLDER, safe_filename)
+            safe_name = f"{timestamp}_{filename}"
+            file_path = os.path.join(Config.UPLOADS_FOLDER, safe_name)
             
             try:
                 with open(file_path, 'wb') as f:
-                    f.write(decoded_content)
+                    f.write(decoded)
+                logger.info(f"File saved: {safe_name} ({self.format_size(len(decoded))})")
             except Exception as e:
-                return None, f"Failed to save file: {e}"
+                return False, f"Failed to save file: {e}"
             
             # Build file info for broadcast
             file_info = {
                 'type': 'file',
-                'filename': safe_filename,
+                'filename': safe_name,
                 'original_name': filename,
-                'size': human_size,
-                'file_type': file_type,
+                'size': self.format_size(len(decoded)),
+                'file_type': self.get_file_type(filename),
                 'sender': sender_name,
                 'timestamp': datetime.now().strftime("[%H:%M:%S]")
             }
             
-            return file_content_b64, json.dumps(file_info)
+            return True, file_info
             
         except Exception as e:
-            logger.error(f"File transfer error: {e}", exc_info=True)
-            return None, f"File transfer error: {e}"
+            logger.error(f"File process error: {e}", exc_info=True)
+            return False, f"File error: {e}"
 
 
+# ============================================================================
+# COMMAND HANDLER
+# ============================================================================
 class CommandHandler:
     """Handles server-side commands"""
     
-    def __init__(self, client_manager: ClientManager, message_manager: MessageManager):
+    def __init__(self, client_manager: ClientManager, message_manager: MessageManager,
+                 broadcast_func):
         self.client_manager = client_manager
         self.message_manager = message_manager
+        self.broadcast = broadcast_func
     
-    async def handle_command(self, command: str, writer: asyncio.StreamWriter, client_name: str):
-        """Handle a command from client"""
+    async def handle(self, command: str, client: ClientInfo) -> bool:
+        """
+        Handle command from client
+        Returns: True if command was handled, False otherwise
+        """
+        parts = command.split(' ', 1)
+        cmd = parts[0].lower()
+        args = parts[1] if len(parts) > 1 else ""
+        
+        logger.debug(f"Command from {client.name}: {cmd} {args}")
+        
         try:
-            parts = command.split(' ', 1)
-            cmd = parts[0].lower()
-            args = parts[1] if len(parts) > 1 else ""
-            
             if cmd == '/help':
-                await self._cmd_help(writer)
+                await self._cmd_help(client)
             elif cmd == '/users':
-                await self._cmd_users(writer)
+                await self._cmd_users(client)
             elif cmd == '/clear':
-                await self._cmd_clear(writer)
+                await self._cmd_clear(client)
             elif cmd == '/pm':
-                await self._cmd_pm(writer, client_name, args)
+                await self._cmd_pm(client, args)
             else:
-                writer.write(f"Unknown command: {cmd}".encode('utf-8'))
-                await writer.drain()
-                
+                # Unknown command - let it pass as regular message
+                return False
+            
+            return True
+            
         except Exception as e:
             logger.error(f"Command handler error: {e}", exc_info=True)
-            writer.write(f"Command error: {e}".encode('utf-8'))
-            await writer.drain()
+            await self._send_error(client, f"Command error: {e}")
+            return True
     
-    async def _cmd_help(self, writer: asyncio.StreamWriter):
+    async def _send_text(self, client: ClientInfo, text: str):
+        """Send text to client"""
+        try:
+            client.writer.write(text.encode('utf-8') + b'\n')
+            await client.writer.drain()
+        except Exception as e:
+            logger.error(f"Send to {client.name} failed: {e}")
+    
+    async def _send_error(self, client: ClientInfo, error: str):
+        """Send error to client"""
+        await self._send_text(client, f"__ERROR__|{error}")
+    
+    async def _cmd_help(self, client: ClientInfo):
         """Handle /help command"""
         help_text = (
-            "Available commands:\n"
-            "/help - Show this help message\n"
-            "/users - List all connected users\n"
-            "/clear - Clear your chat history\n"
-            "/pm <username> <message> - Send private message\n"
-            ";exit - Quit the client"
+            "📋 Available commands:\n"
+            "/help - Show this help\n"
+            "/users - List connected users\n"
+            "/clear - Clear your chat\n"
+            "/pm <user> <msg> - Private message"
         )
-        writer.write(help_text.encode('utf-8'))
-        await writer.drain()
+        await self._send_text(client, help_text)
     
-    async def _cmd_users(self, writer: asyncio.StreamWriter):
+    async def _cmd_users(self, client: ClientInfo):
         """Handle /users command"""
-        clients = await self.client_manager.get_all_clients()
-        users_list = ", ".join([c.name for c in clients])
-        msg = f"Connected users ({len(clients)}): {users_list}"
-        writer.write(msg.encode('utf-8'))
-        await writer.drain()
+        names = await self.client_manager.get_names()
+        count = len(names)
+        msg = f"👥 Connected users ({count}): {', '.join(names) if names else 'None'}"
+        await self._send_text(client, msg)
     
-    async def _cmd_clear(self, writer: asyncio.StreamWriter):
+    async def _cmd_clear(self, client: ClientInfo):
         """Handle /clear command"""
-        writer.write("__CLEAR__".encode('utf-8'))
-        await writer.drain()
+        await self._send_text(client, "__CLEAR__")
+        await self.message_manager.add(f"{client.name} cleared chat", "system")
     
-    async def _cmd_pm(self, writer: asyncio.StreamWriter, client_name: str, args: str):
+    async def _cmd_pm(self, client: ClientInfo, args: str):
         """Handle /pm command"""
         pm_parts = args.split(' ', 1)
         
         if len(pm_parts) < 2:
-            writer.write("Usage: /pm <username> <message>".encode('utf-8'))
-            await writer.drain()
+            await self._send_error(client, "Usage: /pm <username> <message>")
             return
-            
+        
         target_name = pm_parts[0]
         pm_message = pm_parts[1]
         
-        target_client = await self.client_manager.get_client_by_name(target_name)
+        target = await self.client_manager.get_by_name(target_name)
         
-        if target_client:
-            private_msg = f"[PM from {client_name}]: {pm_message}"
-            try:
-                target_client.writer.write(private_msg.encode('utf-8'))
-                await target_client.writer.drain()
-                await self.message_manager.add_message(
-                    f"{client_name} -> {target_name}: {pm_message}", 
-                    is_user_message=True
-                )
-                writer.write(f"[PM to {target_name}]: {pm_message}".encode('utf-8'))
-                await writer.drain()
-            except Exception as e:
-                logger.error(f"PM send error: {e}")
-                writer.write(f"Failed to send PM to {target_name}".encode('utf-8'))
-                await writer.drain()
+        if target:
+            # Send to target
+            private_msg = f"[PM from {client.name}]: {pm_message}"
+            await self._send_text(target, private_msg)
+            
+            # Confirm to sender
+            await self._send_text(client, f"[PM to {target_name}]: {pm_message}")
+            
+            # Log
+            await self.message_manager.add(f"{client.name} -> {target_name}: {pm_message}", "pm")
+            logger.info(f"PM: {client.name} -> {target.name}")
         else:
-            writer.write(f"User '{target_name}' not found".encode('utf-8'))
-            await writer.drain()
+            await self._send_error(client, f"User '{target_name}' not found")
 
 
+# ============================================================================
+# CHAT SERVER
+# ============================================================================
 class ChatServer:
     """Main server class"""
     
     def __init__(self):
-        logger.info("ChatServer initialized")
         self.message_manager = MessageManager()
         self.client_manager = ClientManager()
         self.file_handler = FileHandler()
         self.command_handler: Optional[CommandHandler] = None
+        self.server: Optional[asyncio.Server] = None
         self.port = 0
-        self.server = None
     
-    def _clear_screen(self):
-        """Clear console screen"""
-        os.system("cls" if sys.platform == "win32" else "clear")
-    
-    def _display_banner(self):
-        """Display banner"""
-        print(BANNER)
+    def _print_banner(self):
+        """Display server banner"""
+        banner = (
+            '#####   #       #####   #####\n'
+            '#   #   #       #       #    \n'
+            '#   #   #       ####    #  ##\n'
+            '#   #   #       #       #   #\n'
+            '#####   #####   #####   #####\n'
+        )
+        print(banner)
         print('=====The Server side=====')
-        
-        display_messages = self.message_manager.get_display_messages()
-        for line in display_messages:  
-            print(line)
-        
-        sys.stdout.write(CURSOR_SHOW)
-        sys.stdout.flush()
+        print(f'Token: {Config.EXPECTED_TOKEN}')
+        print()
     
-    def _get_port(self) -> int:
-        """Get port from user"""
-        try:
-            port = int(input('Port: '))
-            if 1 <= port <= 65535:
-                return port
-            print("Port must be between 1 and 65535")
-            return 0
-        except ValueError:
-            print("Invalid port number.")
-            return 0
-    
-    async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    async def _handle_client(self, reader: asyncio.StreamReader, 
+                             writer: asyncio.StreamWriter):
         """Handle a client connection"""
         client_addr = writer.get_extra_info('peername')
         logger.info(f"New connection from {client_addr}")
         
-        await self.message_manager.add_message(
-            f"New connection from {client_addr}", 
-            is_user_message=False
-        )
-        
-        client_added = False
+        client = None
         client_name = "Unknown"
         
         try:
-            # Authenticate with token
-            token_data = await reader.read(Config.BUFFER_SIZE)
-            
-            if not token_data:
+            # === Step 1: Authenticate with token ===
+            token_line = await reader.readline()
+            if not token_line:
                 logger.warning(f"No token from {client_addr}")
+                writer.close()
                 return
-                
-            received_token = token_data.decode('utf-8').strip()
             
-            if received_token != Config.EXPECTED_TOKEN:
-                logger.warning(f"Invalid token from {client_addr}")
-                error_msg = "Authentication error: invalid token"
-                writer.write(error_msg.encode('utf-8'))
+            token = token_line.decode('utf-8').strip()
+            
+            if token != Config.EXPECTED_TOKEN:
+                logger.warning(f"Invalid token from {client_addr}: {token}")
+                writer.write(b"Authentication error: invalid token\n")
                 await writer.drain()
+                writer.close()
                 return
             
-            logger.info(f"Token authenticated for {client_addr}")
+            logger.info(f"Token authenticated: {client_addr}")
             
-            # Get username
-            name_data = await reader.read(Config.BUFFER_SIZE)
-            
-            if not name_data:
+            # === Step 2: Get username ===
+            name_line = await reader.readline()
+            if not name_line:
                 logger.warning(f"No username from {client_addr}")
+                writer.close()
                 return
-                
-            client_name = name_data.decode('utf-8').strip()
+            
+            client_name = name_line.decode('utf-8').strip()
             # Sanitize username
             client_name = ''.join(c for c in client_name if c.isalnum() or c in ' ._-' )[:30]
+            client_name = client_name or "Anonymous"
             
-            if not client_name:
-                client_name = "Anonymous"
+            # === Step 3: Register client ===
+            client = await self.client_manager.add(reader, writer, client_name, client_addr)
             
-            logger.info(f"Username: {client_name}")
-            
+            # Update console title
             if sys.platform == "win32":
                 try:
                     ctypes.windll.kernel32.SetConsoleTitleW(
-                        f"O.L.E.G. messenger | Client: {client_name}"
+                        f"O.L.E.G. messenger | Clients: {await self.client_manager.count()}"
                     )
                 except Exception:
                     pass
             
-            # Add client to manager
-            await self.client_manager.add_client(reader, writer, client_name, client_addr)
-            client_added = True
-            
-            current_count = await self.client_manager.get_client_count()
-            await self.message_manager.add_message(
-                f"{client_name} Connected. Total Clients: {current_count}", 
-                is_user_message=False
-            )
-            logger.info(f"{client_name} connected ({current_count} total)")
-            
-            # Broadcast join message
+            # === Step 4: Broadcast join message ===
             join_msg = f"*** {client_name} has joined the chat ***"
-            await self._broadcast_message(join_msg, writer)
-
-            # Main message loop
+            await self._broadcast(join_msg, exclude=client)
+            await self.message_manager.add(join_msg, "system")
+            logger.info(f"{client_name} connected ({await self.client_manager.count()} total)")
+            
+            # === Step 5: Main message loop ===
             while True:
                 data = await reader.read(Config.BUFFER_SIZE)
                 
                 if not data:
-                    logger.info(f"Client {client_name} disconnected")
+                    logger.info(f"Client disconnected: {client_name}")
                     break
                 
                 message = data.decode('utf-8').strip()
                 
                 if not message:
                     continue
-
-                # Handle file transfer: __FILE__|filename|base64data
+                
+                logger.debug(f"From {client_name}: {message[:100]}")
+                
+                # Handle file transfer
                 if message.startswith('__FILE__|'):
                     file_data = message[9:]  # Remove '__FILE__|' prefix
-                    file_content, result = await self.file_handler.handle_file_transfer(
-                        file_data, client_name
-                    )
+                    success, result = await self.file_handler.process_file(file_data, client_name)
                     
-                    if result.startswith('{'):
-                        # Success - broadcast file info
-                        await self._broadcast_message(f"__FILE_INFO__|{result}", writer)
-                        await self.message_manager.add_message(
-                            f"{client_name} sent a file", 
-                            is_user_message=True
-                        )
+                    if success:
+                        # Broadcast file info
+                        file_info_json = json.dumps(result, ensure_ascii=False)
+                        await self._broadcast(f"__FILE_INFO__|{file_info_json}")
+                        await self.message_manager.add(f"{client_name} sent a file", "file")
+                        logger.info(f"File from {client_name}: {result.get('original_name')}")
                     else:
-                        # Error - send to sender only
-                        writer.write(f"__ERROR__|{result}".encode('utf-8'))
+                        # Send error to sender only
+                        writer.write(f"__ERROR__|{result}\n".encode('utf-8'))
                         await writer.drain()
                     continue
-
+                
                 # Handle commands
                 if message.startswith('/'):
-                    if self.command_handler:
-                        await self.command_handler.handle_command(message, writer, client_name)
-                    continue
+                    handled = await self.command_handler.handle(message, client)
+                    if handled:
+                        continue
                 
                 # Regular message - broadcast to all
                 timestamp = datetime.now().strftime("[%H:%M:%S]")
-                formatted_message = f"{timestamp} {client_name}: {message}"
+                formatted = f"{timestamp} {client_name}: {message}"
                 
-                await self.message_manager.add_message(formatted_message, is_user_message=True)
-                logger.info(f"Broadcast: {formatted_message}")
-                await self._broadcast_message(formatted_message, writer)
-
+                await self.message_manager.add(formatted, "message")
+                await self._broadcast(formatted)
+                logger.info(f"Broadcast: {formatted}")
+        
         except ConnectionResetError:
-            logger.info(f"Connection reset by {client_name} ({client_addr})")
+            logger.info(f"Connection reset: {client_name} ({client_addr})")
+        except asyncio.CancelledError:
+            logger.info(f"Connection cancelled: {client_name}")
         except Exception as e:
-            logger.error(f"Error handling client {client_addr}: {e}", exc_info=True)
+            logger.error(f"Error handling {client_addr}: {e}", exc_info=True)
         finally:
-            if client_added:
-                await self.client_manager.remove_client(writer)
-                remaining = await self.client_manager.get_client_count()
-                await self.message_manager.add_message(
-                    f"{client_name} disconnected. Remaining: {remaining}", 
-                    is_user_message=False
-                )
+            # === Cleanup ===
+            if client:
+                await self.client_manager.remove(client.writer)
+                
+                remaining = await self.client_manager.count()
+                leave_msg = f"*** {client_name} has left the chat ***"
+                await self._broadcast(leave_msg)
+                await self.message_manager.add(leave_msg, "system")
+                
                 logger.info(f"{client_name} disconnected ({remaining} remaining)")
                 
-                leave_msg = f"*** {client_name} has left the chat ***"
-                await self._broadcast_message(leave_msg, None)
-                    
+                # Update console title
+                if sys.platform == "win32":
+                    try:
+                        ctypes.windll.kernel32.SetConsoleTitleW(
+                            f"O.L.E.G. messenger | Clients: {remaining}"
+                        )
+                    except Exception:
+                        pass
+            
             try:
                 writer.close()
                 await writer.wait_closed()
-            except Exception as e:
-                logger.error(f"Close error: {e}")
+            except Exception:
+                pass
     
-    async def _broadcast_message(self, message: str, exclude_writer: Optional[asyncio.StreamWriter] = None):
+    async def _broadcast(self, message: str, exclude: Optional[ClientInfo] = None):
         """Broadcast message to all clients"""
-        current_clients = await self.client_manager.get_all_clients()
+        clients = await self.client_manager.get_all()
         
-        for client in current_clients:
-            if client.writer != exclude_writer:
-                try:
-                    client.writer.write(message.encode('utf-8'))
-                    await client.writer.drain()
-                except Exception as e:
-                    logger.warning(f"Failed to send to {client.name}: {e}")
-                    await self.client_manager.remove_client(client.writer)
+        for client in clients:
+            if exclude and client == exclude:
+                continue
+            
+            try:
+                client.writer.write(message.encode('utf-8') + b'\n')
+                await client.writer.drain()
+            except Exception as e:
+                logger.warning(f"Failed to send to {client.name}: {e}")
+                # Client will be removed on next read attempt
     
     async def run(self):
         """Run the server"""
-        logger.info("ChatServer.run() started")
+        logger.info("Server starting...")
+        
+        self._print_banner()
+        
+        # Load history
+        await self.message_manager.load()
+        
+        # Get port
         try:
-            self._clear_screen()
-            self._display_banner()
-            
-            await self.message_manager.load_history()
-            
-            self.port = self._get_port()
-            if not self.port:
-                logger.error("Invalid port")
-                return
-
+            self.port = int(input('Enter port (default 8888): ').strip() or '8888')
+            if not (1 <= self.port <= 65535):
+                print("Invalid port. Using 8888.")
+                self.port = 8888
+        except ValueError:
+            print("Invalid port. Using 8888.")
+            self.port = 8888
+        
+        # Initialize command handler
+        self.command_handler = CommandHandler(
+            self.client_manager, 
+            self.message_manager,
+            self._broadcast
+        )
+        
+        # Start server
+        try:
             self.server = await asyncio.start_server(
                 self._handle_client,
-                '0.0.0.0',
+                Config.HOST,
                 self.port
             )
             
-            logger.info(f"Server started on port {self.port}")
+            logger.info(f"Server started on {Config.HOST}:{self.port}")
+            print(f"\n✅ Server running on port {self.port}")
+            print(f"📁 Files saved to: {os.path.abspath(Config.UPLOADS_FOLDER)}")
+            print(f"📝 History: {os.path.abspath(Config.HISTORY_FILE)}")
+            print("\nWaiting for connections...\n")
             
-            await self.message_manager.add_message(
-                f"Server started on port: {self.port}", 
-                is_user_message=False
-            )
-            await self.message_manager.add_message(
-                "Waiting for connections...", 
-                is_user_message=False
-            )
-            await self.message_manager.add_message(
-                f"Max file size: {self.file_handler.format_file_size(Config.MAX_FILE_SIZE)}", 
-                is_user_message=False
-            )
-            
-            # Initialize command handler
-            self.command_handler = CommandHandler(self.client_manager, self.message_manager)
-
             async with self.server:
-                logger.info("Serving forever")
                 await self.server.serve_forever()
-
+                
         except OSError as e:
-            logger.error(f"Failed to start server: {e}")
-            print(f"Failed to start server: {e}")
-            if e.errno == 98 or e.errno == 10048:  # Address already in use
-                print("Hint: Try a different port or check if another instance is running")
+            if e.errno in (98, 10048):  # Address already in use
+                logger.error(f"Port {self.port} is already in use")
+                print(f"\n❌ Error: Port {self.port} is already in use")
+                print("Hint: Try a different port or close other instances")
+            else:
+                logger.error(f"Server error: {e}")
+                print(f"\n❌ Server error: {e}")
         except Exception as e:
             logger.error(f"Fatal error: {e}", exc_info=True)
-            print(f"Error occurred: {e}")
+            print(f"\n❌ Fatal error: {e}")
         finally:
-            logger.info("ChatServer.run() ended")
-            await self.message_manager.save_history()
+            logger.info("Server shutdown")
+            await self.message_manager.save()
+            print("\nGoodbye!")
 
 
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
 async def main():
     """Main entry point"""
     logger.info("=" * 50)
@@ -625,7 +645,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.warning("Server interrupted by user")
-        print("\nServer stopped.")
+        print("\n⚠ Server stopped by user")
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
-        print(f"\nFatal error: {e}")
+        print(f"\n❌ Fatal error: {e}")
