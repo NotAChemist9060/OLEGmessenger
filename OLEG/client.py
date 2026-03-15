@@ -16,6 +16,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Callable
+from tkinter import Toplevel, StringVar
 from tkinter import (
     Tk, Frame, Text, Entry, Button, Label, Scrollbar, 
     Menu, filedialog, messagebox, font as tkfont, END, NORMAL, DISABLED
@@ -547,10 +548,66 @@ class ChatApp:
         self.chat_display.tag_bind('link', '<Enter>', lambda e: self.chat_display.config(cursor='hand2'))
         self.chat_display.tag_bind('link', '<Leave>', lambda e: self.chat_display.config(cursor='arrow'))
         
-        # Rest of your _build_ui method continues here...
         # === Input area ===
         input_frame = Frame(main_frame, bg=Config.INPUT_BG, padx=10, pady=10)
         input_frame.pack(fill='x', side='bottom')
+        
+        # Message entry
+        self.message_entry = Entry(
+            input_frame,
+            bg=Config.INPUT_BG,
+            fg=Config.INPUT_FG,
+            insertbackground=Config.INPUT_FG,
+            relief='flat',
+            font=Config.FONT_MAIN
+        )
+        self.message_entry.pack(side='left', fill='x', expand=True, padx=(0, 10))
+        self.message_entry.bind('<Return>', self._on_message_send)
+        self.message_entry.bind('<KeyRelease>', self._on_entry_key)
+        
+        # File button
+        self.file_btn = Button(
+            input_frame,
+            text="📎",
+            bg=Config.ACCENT_COLOR,
+            fg='white',
+            activebackground=Config.ACCENT_HOVER,
+            activeforeground='white',
+            relief='flat',
+            cursor='hand2',
+            font=Config.FONT_BOLD,
+            width=3,
+            command=self._on_file_select
+        )
+        self.file_btn.pack(side='right', padx=(5, 0))
+        
+        # Send button
+        self.send_btn = Button(
+            input_frame,
+            text="➤",
+            bg=Config.ACCENT_COLOR,
+            fg='white',
+            activebackground=Config.ACCENT_HOVER,
+            activeforeground='white',
+            relief='flat',
+            cursor='hand2',
+            font=Config.FONT_BOLD,
+            width=3,
+            command=self._on_message_send
+        )
+        self.send_btn.pack(side='right')
+        
+        # === Drag & drop area ===
+        self._setup_drag_drop(input_frame)
+        
+        # === Connection bar ===
+        self._build_connection_bar(main_frame)
+        
+        # === Context menu ===
+        self._setup_context_menu()
+        
+        # Focus entry
+        self.message_entry.focus_set()
         
         # ... (rest of your code)
     def _setup_drag_drop(self, parent):
@@ -985,29 +1042,34 @@ class ChatApp:
     
     def _show_connect_dialog(self):
         """Show connection dialog"""
-        dialog = Tk()
+        dialog = Toplevel(self.root)  # Use Toplevel instead of Tk
         dialog.title("Connect to Server")
-        dialog.geometry("320x200")
+        dialog.geometry("320x250")
         dialog.configure(bg=Config.CHAT_BG)
         dialog.resizable(False, False)
-        dialog.transient(self.root)
-        dialog.grab_set()
+        dialog.transient(self.root)  # Set as transient to main window
+        dialog.grab_set()  # Make modal
         
         # Center on parent
         dialog.update_idletasks()
         x = self.root.winfo_x() + (self.root.winfo_width() - 320) // 2
-        y = self.root.winfo_y() + (self.root.winfo_height() - 200) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - 250) // 2
         dialog.geometry(f"+{x}+{y}")
         
+        # Variables
+        host_var = StringVar(value=self.server_host or "127.0.0.1")
+        port_var = StringVar(value=str(self.server_port or "8888"))
+        name_var = StringVar(value=self.username)
+        
         def on_connect():
-            host = host_entry.get().strip() or "127.0.0.1"
+            host = host_var.get().strip() or "127.0.0.1"
             try:
-                port = int(port_entry.get().strip() or "8888")
+                port = int(port_var.get().strip() or "8888")
             except ValueError:
                 messagebox.showerror("Error", "Invalid port", parent=dialog)
                 return
             
-            name = name_entry.get().strip()
+            name = name_var.get().strip()
             if not name:
                 messagebox.showerror("Error", "Enter your name", parent=dialog)
                 return
@@ -1023,78 +1085,134 @@ class ChatApp:
             if self.connected:
                 self._safe_call_async(self.network.disconnect())
             
-            self._safe_call_async(self._connect_async(host, port))
+            # Small delay to ensure dialog is closed
+            self.root.after(100, lambda: self._safe_call_async(self._connect_async(host, port)))
         
         # Fields
-        Frame(dialog, bg=Config.CHAT_BG).pack(pady=10)
+        main_frame = Frame(dialog, bg=Config.CHAT_BG, padx=20, pady=10)
+        main_frame.pack(fill='both', expand=True)
         
-        Label(dialog, text="Server Host:", bg=Config.CHAT_BG, 
-              fg=Config.CHAT_FG, font=Config.FONT_SMALL).pack()
-        host_entry = Entry(dialog, width=30, font=Config.FONT_MAIN)
-        host_entry.insert(0, self.server_host or "127.0.0.1")
-        host_entry.pack(pady=2)
+        # Server Host
+        Label(main_frame, text="Server Host:", bg=Config.CHAT_BG, 
+            fg=Config.CHAT_FG, font=Config.FONT_SMALL, anchor='w').pack(fill='x', pady=(5,0))
+        host_entry = Entry(main_frame, textvariable=host_var, width=30, font=Config.FONT_MAIN,
+                        bg=Config.INPUT_BG, fg=Config.INPUT_FG, insertbackground=Config.INPUT_FG,
+                        relief='flat')
+        host_entry.pack(fill='x', pady=(0,5))
         
-        Label(dialog, text="Port:", bg=Config.CHAT_BG, 
-              fg=Config.CHAT_FG, font=Config.FONT_SMALL).pack()
-        port_entry = Entry(dialog, width=30, font=Config.FONT_MAIN)
-        port_entry.insert(0, str(self.server_port or "8888"))
-        port_entry.pack(pady=2)
+        # Port
+        Label(main_frame, text="Port:", bg=Config.CHAT_BG, 
+            fg=Config.CHAT_FG, font=Config.FONT_SMALL, anchor='w').pack(fill='x', pady=(5,0))
+        port_entry = Entry(main_frame, textvariable=port_var, width=30, font=Config.FONT_MAIN,
+                        bg=Config.INPUT_BG, fg=Config.INPUT_FG, insertbackground=Config.INPUT_FG,
+                        relief='flat')
+        port_entry.pack(fill='x', pady=(0,5))
         
-        Label(dialog, text="Your Name:", bg=Config.CHAT_BG, 
-              fg=Config.CHAT_FG, font=Config.FONT_SMALL).pack()
-        name_entry = Entry(dialog, width=30, font=Config.FONT_MAIN)
-        name_entry.insert(0, self.username)
-        name_entry.pack(pady=2)
+        # Your Name
+        Label(main_frame, text="Your Name:", bg=Config.CHAT_BG, 
+            fg=Config.CHAT_FG, font=Config.FONT_SMALL, anchor='w').pack(fill='x', pady=(5,0))
+        name_entry = Entry(main_frame, textvariable=name_var, width=30, font=Config.FONT_MAIN,
+                        bg=Config.INPUT_BG, fg=Config.INPUT_FG, insertbackground=Config.INPUT_FG,
+                        relief='flat')
+        name_entry.pack(fill='x', pady=(0,10))
         name_entry.focus_set()
         name_entry.bind('<Return>', lambda e: on_connect())
         
         # Buttons
-        btn_frame = Frame(dialog, bg=Config.CHAT_BG)
-        btn_frame.pack(pady=15)
+        btn_frame = Frame(main_frame, bg=Config.CHAT_BG)
+        btn_frame.pack(fill='x', pady=10)
         
         Button(btn_frame, text="Cancel", command=dialog.destroy,
-               bg=Config.OTHER_MSG_BG, fg=Config.CHAT_FG, relief='flat',
-               cursor='hand2', padx=20).pack(side='left', padx=5)
+            bg=Config.OTHER_MSG_BG, fg=Config.CHAT_FG, relief='flat',
+            activebackground=Config.ACCENT_HOVER, activeforeground='white',
+            cursor='hand2', padx=20).pack(side='right', padx=5)
         
         Button(btn_frame, text="Connect", command=on_connect,
-               bg=Config.ACCENT_COLOR, fg='white', relief='flat',
-               cursor='hand2', padx=20).pack(side='left', padx=5)
-        
-        dialog.mainloop()
+            bg=Config.ACCENT_COLOR, fg='white', relief='flat',
+            activebackground=Config.ACCENT_HOVER, activeforeground='white',
+            cursor='hand2', padx=20).pack(side='right', padx=5)
     
     def _show_settings(self):
         """Show settings dialog"""
-        dialog = Tk()
+        dialog = Toplevel(self.root)  # Use Toplevel instead of Tk
         dialog.title("Settings")
-        dialog.geometry("300x180")
+        dialog.geometry("320x220")
         dialog.configure(bg=Config.CHAT_BG)
+        dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
         
-        # Current settings
-        Label(dialog, text="Current Settings", bg=Config.CHAT_BG, 
-              fg=Config.ACCENT_COLOR, font=Config.FONT_BOLD).pack(pady=10)
+        # Center on parent
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - 320) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - 220) // 2
+        dialog.geometry(f"+{x}+{y}")
         
+        # Main frame with padding
+        main_frame = Frame(dialog, bg=Config.CHAT_BG, padx=20, pady=15)
+        main_frame.pack(fill='both', expand=True)
+        
+        # Title
+        Label(main_frame, text="Current Settings", bg=Config.CHAT_BG, 
+            fg=Config.ACCENT_COLOR, font=Config.FONT_BOLD).pack(pady=(0, 15))
+        
+        # Settings display frame
+        settings_frame = Frame(main_frame, bg=Config.CHAT_BG)
+        settings_frame.pack(fill='x', pady=5)
+        
+        # Settings with better formatting
         settings = [
-            f"Host: {self.server_host or 'Not set'}",
-            f"Port: {self.server_port or 'Not set'}",
-            f"Name: {self.username or 'Not set'}",
+            ("Server:", self.server_host or "Not set"),
+            ("Port:", str(self.server_port or "Not set")),
+            ("Username:", self.username or "Not set"),
         ]
-        for s in settings:
-            Label(dialog, text=s, bg=Config.CHAT_BG, 
-                  fg=Config.CHAT_FG, font=Config.FONT_SMALL).pack()
+        
+        for i, (label, value) in enumerate(settings):
+            row_frame = Frame(settings_frame, bg=Config.CHAT_BG)
+            row_frame.pack(fill='x', pady=2)
+            
+            Label(row_frame, text=label, bg=Config.CHAT_BG, 
+                fg=Config.CHAT_FG, font=Config.FONT_SMALL, width=10, anchor='w').pack(side='left')
+            
+            # Value with different color if not set
+            value_color = Config.SYSTEM_MSG_COLOR if value == "Not set" else Config.SUCCESS_COLOR
+            Label(row_frame, text=value, bg=Config.CHAT_BG, 
+                fg=value_color, font=Config.FONT_SMALL, anchor='w').pack(side='left', padx=(5,0))
+        
+        # Status indicator
+        status_frame = Frame(main_frame, bg=Config.CHAT_BG)
+        status_frame.pack(fill='x', pady=10)
+        
+        connection_status = "● Connected" if self.connected else "○ Disconnected"
+        status_color = Config.SUCCESS_COLOR if self.connected else Config.ERROR_COLOR
+        
+        Label(status_frame, text="Status:", bg=Config.CHAT_BG, 
+            fg=Config.CHAT_FG, font=Config.FONT_SMALL, width=10, anchor='w').pack(side='left')
+        Label(status_frame, text=connection_status, bg=Config.CHAT_BG, 
+            fg=status_color, font=Config.FONT_SMALL).pack(side='left')
         
         # Buttons
-        btn_frame = Frame(dialog, bg=Config.CHAT_BG)
-        btn_frame.pack(pady=15)
+        btn_frame = Frame(main_frame, bg=Config.CHAT_BG)
+        btn_frame.pack(fill='x', pady=(15, 0))
         
-        Button(btn_frame, text="Change", command=lambda: [dialog.destroy(), self._show_connect_dialog()],
-               bg=Config.ACCENT_COLOR, fg='white', relief='flat', cursor='hand2', padx=15).pack(side='left', padx=5)
+        Button(btn_frame, text="Change Settings", 
+            command=lambda: [dialog.destroy(), self._show_connect_dialog()],
+            bg=Config.ACCENT_COLOR, fg='white', relief='flat', 
+            activebackground=Config.ACCENT_HOVER, activeforeground='white',
+            cursor='hand2', padx=10).pack(side='left', padx=5)
         
         Button(btn_frame, text="Close", command=dialog.destroy,
-               bg=Config.OTHER_MSG_BG, fg=Config.CHAT_FG, relief='flat', cursor='hand2', padx=15).pack(side='left', padx=5)
+            bg=Config.OTHER_MSG_BG, fg=Config.CHAT_FG, relief='flat',
+            activebackground=Config.ACCENT_HOVER, activeforeground='white',
+            cursor='hand2', padx=20).pack(side='right', padx=5)
         
-        dialog.mainloop()
+        # If connected, add disconnect button
+        if self.connected:
+            Button(btn_frame, text="Disconnect", 
+                command=lambda: [dialog.destroy(), self._disconnect()],
+                bg=Config.ERROR_COLOR, fg='white', relief='flat',
+                activebackground='#ff4444', activeforeground='white',
+                cursor='hand2', padx=10).pack(side='left', padx=5)
     
     def _disconnect(self):
         """Disconnect from server"""
